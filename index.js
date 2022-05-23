@@ -29,13 +29,13 @@ module.exports = Object.assign(
 const VERSION = process.version;
 const PLATFORM = os.platform();
 const ARCH = os.arch();
-const USERNAME = os.userInfo().username;
+// const USERNAME = os.userInfo().username;
 
 class Cache {
   constructor(name, size, blockSize) {
     blockSize = blockSize || exports.SIZE_DEFAULT;
     let md5Name = md5(
-      `${VERSION}_${PLATFORM}_${ARCH}_${USERNAME}_${name}_${size}_${blockSize}`
+      `${VERSION}_${PLATFORM}_${ARCH}_USERNAME_${name}_${size}_${blockSize}`
     ).slice(8, 24);
     if (!Object.prototype.hasOwnProperty.call(cacheMap, md5Name)) {
       cacheMap[md5Name] = new nativeModule.Cache(md5Name, size, blockSize);
