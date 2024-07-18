@@ -2,10 +2,10 @@ const crypto = require("crypto");
 const os = require("os");
 const nativeModule = require("./build/Release/binding.node");
 
-let cacheMap = {};
+const cacheMap = {};
 
 function md5(str) {
-  let md5sum = crypto.createHash("md5");
+  const md5sum = crypto.createHash("md5");
   md5sum.update(str);
   return md5sum.digest("hex");
 }
@@ -29,12 +29,11 @@ module.exports = Object.assign(
 const VERSION = process.version;
 const PLATFORM = os.platform();
 const ARCH = os.arch();
-// const USERNAME = os.userInfo().username;
 
 class Cache {
   constructor(name, size, blockSize) {
-    blockSize = blockSize || exports.SIZE_DEFAULT;
-    let md5Name = md5(
+    blockSize = blockSize || module.exports.SIZE_DEFAULT;
+    const md5Name = md5(
       `${VERSION}_${PLATFORM}_${ARCH}_USERNAME_${name}_${size}_${blockSize}`
     ).slice(8, 24);
     if (!Object.prototype.hasOwnProperty.call(cacheMap, md5Name)) {
@@ -44,8 +43,8 @@ class Cache {
   }
 }
 
-exports.Cache = Cache;
+module.exports.Cache = Cache;
 
 if (require.main === module && process.argv[2] === "release") {
-  process.argv.slice(3).forEach(exports.release);
+  process.argv.slice(3).forEach(module.exports.release);
 }
