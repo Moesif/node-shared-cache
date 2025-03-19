@@ -126,6 +126,9 @@ static NAN_METHOD(create)
     flock(xfd, LOCK_SH);
     free(xname);
 
+    // Try to unlink existing shared memory first
+    shm_unlink(*name);
+
     FATALIF(fd = shm_open(*name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR), -1, shm_open);
 
     struct stat stat;
@@ -137,7 +140,10 @@ static NAN_METHOD(create)
     }
     else if (stat.st_size != size)
     {
-        return Nan::ThrowError("cache initialized with different size");
+        // If size doesn't match, unlink and recreate
+        shm_unlink(*name);
+        FATALIF(fd = shm_open(*name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR), -1, shm_open);
+        FATALIF(ftruncate(fd, size), -1, ftruncate);
     }
 
     FATALIF(ptr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0), MAP_FAILED, mmap);

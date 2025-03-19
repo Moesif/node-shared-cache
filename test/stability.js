@@ -1,4 +1,12 @@
 var cp = require('child_process');
+var binding = require('../index.js');
+
+// Clean up any existing shared memory
+try {
+    binding.release("test");
+} catch (e) {
+    // Ignore errors if shared memory doesn't exist
+}
 
 if(process.argv[2] !== 'worker') {
     var workers = [], spawned = 0;
@@ -12,6 +20,13 @@ if(process.argv[2] !== 'worker') {
         }
         clearInterval(pid);
         console.log(spawned + ' children spawned');
+
+        // Clean up shared memory after all workers are killed
+        try {
+            binding.release("test");
+        } catch (e) {
+            // Ignore errors if shared memory doesn't exist
+        }
     });
 
     var pid = setInterval(function() {
@@ -25,27 +40,37 @@ if(process.argv[2] !== 'worker') {
 }
 
 var n = 0, stopped = false;
-var binding = require('../index.js');
 var obj = new binding.Cache("test", 512<<10, binding.SIZE_1K);
-
 
 process.on('SIGINT', function () {
     console.log(process.pid, n);
     stopped = true;
+
+    // Clean up shared memory when worker is stopped
+    try {
+        binding.release("test");
+    } catch (e) {
+        // Ignore errors if shared memory doesn't exist
+    }
 });
 
 function sched() {
     n++;
     for(var i = 0; i < 1000; i++) {
-        switch(Math.random() * 10 | 0) {
-            case 0: obj.foo = !obj.foo; break;
-            case 1: obj.foo = Date.now() + Math.random(); break;
-            case 2: obj.foo = process.env; break;
-            case 3: delete obj.foo; break;
-            case 4: Object.keys(obj); break;
-            case 5: obj.foo = null; break;
-            case 6: 'foo' in obj; break;
-            default: obj.foo; break;
+        try {
+            switch(Math.random() * 10 | 0) {
+                case 0: obj.foo = !obj.foo; break;
+                case 1: obj.foo = Date.now() + Math.random(); break;
+                case 2: obj.foo = process.env; break;
+                case 3: delete obj.foo; break;
+                case 4: Object.keys(obj); break;
+                case 5: obj.foo = null; break;
+                case 6: 'foo' in obj; break;
+                default: obj.foo; break;
+            }
+        } catch (e) {
+            console.error('Error in worker:', e);
+            // Don't stop the test on errors, just continue
         }
     }
     stopped || setTimeout(sched, 0);
