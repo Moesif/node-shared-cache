@@ -109,8 +109,6 @@ static NAN_METHOD(create)
         return Nan::ThrowError("total_size should be larger than 512 KB");
     }
 
-    // fprintf(stderr, "allocating %d bytes memory\n", size);
-
     HANDLE fd;
     void *ptr;
     bool forced = false;
@@ -171,7 +169,6 @@ static NAN_METHOD(create)
             Nan::ThrowError("can't create mutex");
         }
     }
-    // fprintf(stderr, "mutexName=%s fd=%p\n", mutexName, fd);
 #endif
 
     if (cache::init(ptr, blocks, block_size_shift, forced))
@@ -237,7 +234,6 @@ public:
 static NAN_PROPERTY_ENUMERATOR(enumerator)
 {
     METHOD_SCOPE(info.Holder(), ptr, fd);
-    // fprintf(stderr, "enumerating properties %x\n", ptr);
 
     KeysEnumerator enumerator;
     cache::enumerate(ptr, fd, &enumerator, KeysEnumerator::next);
@@ -357,11 +353,10 @@ static NAN_METHOD(clear)
 
 void init(Local<Object> exports)
 {
-
     Local<FunctionTemplate> constructor = Nan::New<FunctionTemplate>(create);
-    Local<ObjectTemplate> inst = constructor->InstanceTemplate();
-    inst->SetInternalFieldCount(2); // ptr, fd (synchronization object)
-    Nan::SetNamedPropertyHandler(inst, getter, setter, querier, deleter, enumerator);
+    constructor->InstanceTemplate()->SetInternalFieldCount(2); // ptr, fd (synchronization object)
+
+    Nan::SetNamedPropertyHandler(constructor->InstanceTemplate(), getter, setter, querier, deleter, enumerator);
 
     Nan::Set(exports, Nan::New("Cache").ToLocalChecked(), constructor->GetFunction(Nan::GetCurrentContext()).ToLocalChecked());
     Nan::SetMethod(exports, "release", release);

@@ -1,7 +1,7 @@
 {
   "name": "node-shared-cache-x",
-  "version": "1.7.3",
-  "description": "Interprocess shared memory cache for Node.JS",
+  "version": "1.7.4",
+  "description": "Interprocess shared memory cache for Node.JS (Node.js 18 compatible)",
   "main": "index.js",
   "dependencies": {
     "nan": "^2.14.0"
@@ -27,5 +27,8 @@
   "bugs": {
     "url": "https://github.com/everplus/node-shared-cache/issues"
   },
-  "homepage": "https://github.com/everplus/node-shared-cache"
+  "homepage": "https://github.com/everplus/node-shared-cache",
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }

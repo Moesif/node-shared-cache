@@ -46,7 +46,6 @@ typedef struct writer_s
         }
 
         uint8_t *new_pointer = new uint8_t[capacity];
-        // fprintf(stderr, "writer::ensureCapacity: new buffer allocated:%x (len:%d, required:%d, used:%d)\n", new_pointer, capacity, required, used);
         uint8_t *old_pointer = current - used;
         memcpy(new_pointer, old_pointer, used);
 
@@ -56,8 +55,6 @@ typedef struct writer_s
             deleteOld = true;
 
         current = new_pointer + used;
-
-        // set used to required + used
         used = required;
     }
 
@@ -138,15 +135,15 @@ typedef struct writer_s
                 current += sizeof(uint32_t);
                 for (uint32_t i = 0; i < len; i++)
                 {
-                    // fprintf(stderr, "write array[%d] (len=%d)\n", i, len);
                     write(Nan::Get(arr, i).ToLocalChecked());
                 }
             }
             else if (node::Buffer::HasInstance(value))
             {
                 *(current++) = bson::Buffer;
-                char *data = node::Buffer::Data(value);
-                uint32_t len = node::Buffer::Length(value);
+                Local<Object> buffer = value.As<Object>();
+                char* data = node::Buffer::Data(buffer);
+                uint32_t len = node::Buffer::Length(buffer);
                 ensureCapacity(sizeof(uint32_t) + len);
                 *reinterpret_cast<uint32_t *>(current) = len;
                 current += sizeof(uint32_t);
@@ -181,11 +178,8 @@ typedef struct writer_s
 
 bson::BSONValue::BSONValue(v8::Local<v8::Value> value)
 {
-
     writer_t writer(*this);
     writer.write(value);
-    // fprintf(stderr, "%d bytes used writing %s\n", writer.used, *Nan::Utf8String(value));
-
     pointer = writer.current - writer.used;
     length = writer.used;
 }
@@ -193,8 +187,7 @@ bson::BSONValue::BSONValue(v8::Local<v8::Value> value)
 bson::BSONValue::~BSONValue()
 {
     if (length > sizeof(cache))
-    { // new cache is allocated
-        // fprintf(stderr, "BSONValue: freeing buffer %x (len:%d)\n", pointer, length);
+    {
         delete[] pointer;
     }
 }
@@ -274,7 +267,8 @@ static v8::Local<v8::Value> parse(const uint8_t *&data, object_wrapper_t *&objec
             {
                 retval[i] = data[i];
             }
-            Local<Object> obj = Nan::NewBuffer(retval, len).ToLocalChecked();
+            Local<Object> obj = Nan::CopyBuffer(retval, len).ToLocalChecked();
+            delete[] retval;
             data += len;
             return obj;
         }
