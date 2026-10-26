@@ -77,11 +77,20 @@ typedef struct writer_s
         {
             *(current++) = bson::String;
             Local<String> str = value->ToString(Nan::GetCurrentContext()).ToLocalChecked();
-            size_t len = str->Utf8Length(Nan::GetCurrentContext()->GetIsolate()) + 1;
+            Isolate *isolate = Nan::GetCurrentContext()->GetIsolate();
+#if V8_MAJOR_VERSION >= 13
+            size_t len = str->Utf8LengthV2(isolate) + 1;
+#else
+            size_t len = str->Utf8Length(isolate) + 1;
+#endif
             ensureCapacity(sizeof(uint32_t) + len);
             *reinterpret_cast<uint32_t *>(current) = len;
             current += sizeof(uint32_t);
-            str->WriteUtf8(Nan::GetCurrentContext()->GetIsolate(), reinterpret_cast<char *>(current), -1, nullptr, 0);
+#if V8_MAJOR_VERSION >= 13
+            str->WriteUtf8V2(isolate, reinterpret_cast<char *>(current), len, String::WriteFlags::kNullTerminate);
+#else
+            str->WriteUtf8(isolate, reinterpret_cast<char *>(current), -1, nullptr, 0);
+#endif
             current += len;
         }
         else if (value->IsNull())

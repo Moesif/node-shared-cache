@@ -27,31 +27,54 @@
 
 using namespace v8;
 
-#define FATALIF(expr, n, method)                                                           \
+// Since V8 12.5 (Node 24) named property interceptors return v8::Intercepted
+// instead of void, so throwing helpers take the value to return. Use
+// INTERCEPTED for interceptors and leave it empty for plain methods.
+#define INTERCEPTED Nan::Intercepted::Yes()
+
+#define THROW_RETURN(msg, ret) \
+    {                          \
+        Nan::ThrowError(msg);  \
+        return ret;            \
+    }
+
+#define FATALIF_RET(expr, n, method, ret)                                                  \
     if ((expr) == n)                                                                       \
     {                                                                                      \
         char sbuf[64];                                                                     \
         sprintf(sbuf, __FILE__ ":%d: `%s' failed with code %d", __LINE__, #method, errno); \
-        return Nan::ThrowError(sbuf);                                                      \
+        THROW_RETURN(sbuf, ret);                                                           \
     }
+
+#define FATALIF(expr, n, method) FATALIF_RET(expr, n, method, )
 
 #define METHOD_SCOPE(holder, ptr, fd)                    \
     void *ptr = Nan::GetInternalFieldPointer(holder, 0); \
-    HANDLE fd = intToHandle(holder->GetInternalField(1)->Int32Value(Nan::GetCurrentContext()).ToChecked())
+    HANDLE fd = intToHandle(holder->GetInternalField(1).As<Value>()->Int32Value(Nan::GetCurrentContext()).ToChecked())
 
-#define PROPERTY_SCOPE(property, holder, ptr, fd, keyLen, keyBuf)                                           \
-    int keyLen = property->Length();                                                                        \
-    if (keyLen > 256)                                                                                       \
-    {                                                                                                       \
-        return Nan::ThrowError("length of property name should not be greater than 256");                   \
-    }                                                                                                       \
-    METHOD_SCOPE(holder, ptr, fd);                                                                          \
-    if ((keyLen << 1) + 32 > 1 << static_cast<uint16_t *>(ptr)[CACHE_HEADER_IN_WORDS])                      \
-    {                                                                                                       \
-        return Nan::ThrowError("length of property name should not be greater than (block size - 32) / 2"); \
-    }                                                                                                       \
-    uint16_t keyBuf[256];                                                                                   \
-    property->Write(Nan::GetCurrentContext()->GetIsolate(), keyBuf, 0, -1, 0)
+#define PROPERTY_SCOPE(property, holder, ptr, fd, keyLen, keyBuf, ret)                                    \
+    int keyLen = property->Length();                                                                      \
+    if (keyLen > 256)                                                                                     \
+    {                                                                                                     \
+        THROW_RETURN("length of property name should not be greater than 256", ret);                      \
+    }                                                                                                     \
+    METHOD_SCOPE(holder, ptr, fd);                                                                        \
+    if ((keyLen << 1) + 32 > 1 << static_cast<uint16_t *>(ptr)[CACHE_HEADER_IN_WORDS])                    \
+    {                                                                                                     \
+        THROW_RETURN("length of property name should not be greater than (block size - 32) / 2", ret);    \
+    }                                                                                                     \
+    uint16_t keyBuf[256];                                                                                 \
+    writeKey(property, keyBuf, keyLen)
+
+// String::Write is deprecated in V8 13 (Node 24) in favour of WriteV2
+static inline void writeKey(Local<String> str, uint16_t *buf, int len)
+{
+#if V8_MAJOR_VERSION >= 13
+    str->WriteV2(Nan::GetCurrentContext()->GetIsolate(), 0, len, buf);
+#else
+    str->Write(Nan::GetCurrentContext()->GetIsolate(), buf, 0, len, String::NO_NULL_TERMINATION);
+#endif
+}
 
 uint32_t handleIdx = 0;
 HANDLE handlers[MAX_HANDLES];
@@ -201,7 +224,7 @@ static NAN_METHOD(create)
 
 static NAN_PROPERTY_GETTER(getter)
 {
-    PROPERTY_SCOPE(property, info.Holder(), ptr, fd, keyLen, keyBuf);
+    PROPERTY_SCOPE(property, info.Holder(), ptr, fd, keyLen, keyBuf, INTERCEPTED);
 
     bson::BSONParser parser;
 
@@ -210,17 +233,23 @@ static NAN_PROPERTY_GETTER(getter)
     if (parser.val)
     {
         info.GetReturnValue().Set(parser.parse());
+        return Nan::Intercepted::Yes();
     }
+    return Nan::Intercepted::No();
 }
 
 static NAN_PROPERTY_SETTER(setter)
 {
-    PROPERTY_SCOPE(property, info.Holder(), ptr, fd, keyLen, keyBuf);
+    PROPERTY_SCOPE(property, info.Holder(), ptr, fd, keyLen, keyBuf, INTERCEPTED);
 
     bson::BSONValue bsonValue(value);
 
-    FATALIF(cache::set(ptr, fd, keyBuf, keyLen, bsonValue.Data(), bsonValue.Length()), -1, cache::set);
+    FATALIF_RET(cache::set(ptr, fd, keyBuf, keyLen, bsonValue.Data(), bsonValue.Length()), -1, cache::set, INTERCEPTED);
+#if V8_MAJOR_VERSION > 12 || (V8_MAJOR_VERSION == 12 && V8_MINOR_VERSION > 4)
+    return Nan::Intercepted::Yes();
+#else
     info.GetReturnValue().Set(value);
+#endif
 }
 
 class KeysEnumerator
@@ -249,25 +278,28 @@ static NAN_PROPERTY_ENUMERATOR(enumerator)
 
 static NAN_PROPERTY_DELETER(deleter)
 {
-    PROPERTY_SCOPE(property, info.Holder(), ptr, fd, keyLen, keyBuf);
+    PROPERTY_SCOPE(property, info.Holder(), ptr, fd, keyLen, keyBuf, INTERCEPTED);
 
     info.GetReturnValue().Set(cache::unset(ptr, fd, keyBuf, keyLen));
+    return Nan::Intercepted::Yes();
 }
 
 static NAN_PROPERTY_QUERY(querier)
 {
-    PROPERTY_SCOPE(property, info.Holder(), ptr, fd, keyLen, keyBuf);
+    PROPERTY_SCOPE(property, info.Holder(), ptr, fd, keyLen, keyBuf, INTERCEPTED);
     if (cache::contains(ptr, fd, keyBuf, keyLen))
     {
         info.GetReturnValue().Set(0);
+        return Nan::Intercepted::Yes();
     }
+    return Nan::Intercepted::No();
 }
 
 // increase(holder, key, [by])
 static NAN_METHOD(increase)
 {
     Local<Object> holder = Local<Object>::Cast(info[0]);
-    PROPERTY_SCOPE(info[1]->ToString(Nan::GetCurrentContext()).ToLocalChecked(), holder, ptr, fd, keyLen, keyBuf);
+    PROPERTY_SCOPE(info[1]->ToString(Nan::GetCurrentContext()).ToLocalChecked(), holder, ptr, fd, keyLen, keyBuf, );
     uint32_t increase_by = info.Length() > 2 ? info[2]->Uint32Value(Nan::GetCurrentContext()).ToChecked() : 1;
     info.GetReturnValue().Set(cache::increase(ptr, fd, keyBuf, keyLen, increase_by));
 }
@@ -277,7 +309,7 @@ static NAN_METHOD(increase)
 static NAN_METHOD(exchange)
 {
     Local<Object> holder = Local<Object>::Cast(info[0]);
-    PROPERTY_SCOPE(info[1]->ToString(Nan::GetCurrentContext()).ToLocalChecked(), holder, ptr, fd, keyLen, keyBuf);
+    PROPERTY_SCOPE(info[1]->ToString(Nan::GetCurrentContext()).ToLocalChecked(), holder, ptr, fd, keyLen, keyBuf, );
 
     bson::BSONValue bsonValue(info[2]);
 
@@ -294,7 +326,7 @@ static NAN_METHOD(exchange)
 static NAN_METHOD(fastGet)
 {
     Local<Object> holder = Local<Object>::Cast(info[0]);
-    PROPERTY_SCOPE(info[1]->ToString(Nan::GetCurrentContext()).ToLocalChecked(), holder, ptr, fd, keyLen, keyBuf);
+    PROPERTY_SCOPE(info[1]->ToString(Nan::GetCurrentContext()).ToLocalChecked(), holder, ptr, fd, keyLen, keyBuf, );
 
     bson::BSONParser parser;
 
@@ -342,7 +374,7 @@ static NAN_METHOD(dump)
             return;
         }
 
-        prefix->Write(Nan::GetCurrentContext()->GetIsolate(), dumper.key, 0, -1, 0);
+        writeKey(prefix, dumper.key, keyLen);
         dumper.keyLen = keyLen;
     }
 
